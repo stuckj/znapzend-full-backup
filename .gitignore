@@ -24,9 +24,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# PyInstaller
+# PyInstaller (but not RPM .spec files)
 *.manifest
-*.spec
+/*.spec
 
 # Installer logs
 pip-log.txt
