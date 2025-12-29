@@ -1,0 +1,50 @@
+Source: znapzend-full
+Section: admin
+Priority: optional
+Maintainer: Your Name <your.email@example.com>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all,
+               python3-setuptools,
+               python3-yaml,
+               python3-dbus,
+               python3-pyqt6
+Standards-Version: 4.6.0
+Homepage: https://github.com/yourusername/znapzend-full
+Rules-Requires-Root: no
+
+Package: znapzend-full
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         znapzend,
+         zfsutils-linux,
+         python3-yaml,
+         python3-dbus,
+         gdisk,
+         openssh-client,
+         policykit-1
+Recommends: python3-pyqt6,
+            python3-textual
+Description: Comprehensive backup wrapper for znapzend
+ znapzend-full provides a complete backup solution built on top of znapzend.
+ It adds:
+  - Backup of EFI partitions and GPT layouts
+  - Full ZFS/zpool property backup
+  - Hash-based change detection for efficient backups
+  - D-Bus service for status monitoring
+  - System tray application (Qt)
+  - Interactive restore utility
+  - CLI control tool for headless systems
+
+Package: znapzend-full-gui
+Architecture: all
+Depends: ${misc:Depends},
+         znapzend-full,
+         python3-pyqt6
+Description: GUI components for znapzend-full
+ This package provides the graphical user interface components:
+  - System tray application
+  - Configuration dialog
+ .
+ Install this on systems with a desktop environment.
