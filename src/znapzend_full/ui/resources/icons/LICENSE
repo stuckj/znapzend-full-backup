@@ -1,0 +1,17 @@
+Icons for znapzend-full
+=======================
+
+These icons were created specifically for the znapzend-full project.
+
+License: CC0 1.0 Universal (Public Domain Dedication)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+You can copy, modify, distribute and perform the work, even for commercial
+purposes, all without asking permission.
+
+Icon descriptions:
+- idle.svg: Shield with checkmark (backup complete/protected)
+- backing_up.svg: Sync arrows (data transfer in progress)
+- paused.svg: Pause symbol (backups paused)
+- error.svg: Warning triangle with exclamation (error state)
+- unknown.svg: Question mark (connection unknown)

@@ -162,28 +162,36 @@ class TrayIcon(QSystemTrayIcon):
         """Create icons for different states."""
         self.icons = {}
 
-        # Create simple colored icons
-        # In production, you'd load actual icon files
+        # Get icons directory path
+        icons_dir = Path(__file__).parent / "resources" / "icons"
 
-        def create_circle_icon(color: QColor) -> QIcon:
-            """Create a simple circle icon with the given color."""
+        def load_icon(state: str, fallback_color: QColor) -> QIcon:
+            """Load icon from SVG file, falling back to colored circle."""
+            svg_path = icons_dir / f"{state}.svg"
+
+            if svg_path.exists():
+                icon = QIcon(str(svg_path))
+                if not icon.isNull():
+                    return icon
+
+            # Fallback: create simple circle icon
             pixmap = QPixmap(64, 64)
             pixmap.fill(Qt.GlobalColor.transparent)
 
             painter = QPainter(pixmap)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(color)
+            painter.setBrush(fallback_color)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(4, 4, 56, 56)
             painter.end()
 
             return QIcon(pixmap)
 
-        self.icons[BackupState.IDLE] = create_circle_icon(QColor(0, 180, 0))       # Green
-        self.icons[BackupState.BACKING_UP] = create_circle_icon(QColor(0, 120, 215))  # Blue
-        self.icons[BackupState.PAUSED] = create_circle_icon(QColor(255, 180, 0))    # Yellow
-        self.icons[BackupState.ERROR] = create_circle_icon(QColor(220, 0, 0))       # Red
-        self.icons[BackupState.UNKNOWN] = create_circle_icon(QColor(128, 128, 128)) # Gray
+        self.icons[BackupState.IDLE] = load_icon("idle", QColor(0, 180, 0))          # Green
+        self.icons[BackupState.BACKING_UP] = load_icon("backing_up", QColor(0, 120, 215))  # Blue
+        self.icons[BackupState.PAUSED] = load_icon("paused", QColor(255, 180, 0))    # Yellow
+        self.icons[BackupState.ERROR] = load_icon("error", QColor(220, 0, 0))        # Red
+        self.icons[BackupState.UNKNOWN] = load_icon("unknown", QColor(128, 128, 128)) # Gray
 
     def _create_menu(self) -> None:
         """Create the context menu."""

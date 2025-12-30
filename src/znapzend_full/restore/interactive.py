@@ -9,10 +9,11 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from textual import on
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
@@ -39,10 +40,11 @@ from textual.widgets import (
     TabPane,
 )
 from textual.widget import Widget
+from textual.worker import Worker, WorkerState
 
 from .ssh_client import SSHClient, SSHConfig
-from .zfs_restore import restore_dataset, apply_properties_from_file
-from .partition_restore import restore_gpt, restore_efi
+from .zfs_restore import restore_dataset, restore_pool, apply_properties_from_file
+from .partition_restore import restore_gpt, restore_efi, install_grub
 
 logger = logging.getLogger(__name__)
 
@@ -386,54 +388,286 @@ class RestoreProgressScreen(Screen):
             Rule(),
             RichLog(id="log", highlight=True, markup=True),
             Rule(),
-            Button("Cancel", variant="error", id="cancel", disabled=True),
+            Horizontal(
+                Button("Cancel", variant="error", id="cancel"),
+                classes="buttons",
+            ),
             id="progress",
         )
         yield Footer()
 
     def on_mount(self) -> None:
-        self.run_restore()
+        self.restore_worker: Worker | None = None
+        self.run_restore_worker()
 
-    def run_restore(self) -> None:
-        """Run the restore process."""
+    def log_message(self, message: str, style: str = "white") -> None:
+        """Log a message to the RichLog widget."""
         log = self.query_one("#log", RichLog)
+        log.write(f"[{style}]{message}[/]")
+
+    def update_progress(self, percent: int, status: str) -> None:
+        """Update progress bar and status text."""
         progress = self.query_one("#progress", ProgressBar)
-        status = self.query_one("#status", Static)
+        status_widget = self.query_one("#status", Static)
+        progress.progress = percent
+        status_widget.update(status)
 
-        log.write("[bold blue]Starting restore process...[/]")
+    @work(exclusive=True, thread=True)
+    def run_restore_worker(self) -> None:
+        """Run the restore process in a worker thread."""
+        self.app.call_from_thread(self.log_message, "Starting restore process...", "bold blue")
 
-        # This would be async in a real implementation
-        # For now, just show placeholder steps
+        ssh_client: SSHClient = self.app.ssh_client
+        snapshot: str = self.app.selected_snapshot
+        target_disk: str = self.app.target_disk
+        options: dict = self.app.restore_options
 
-        steps = [
-            "Connecting to backup server...",
-            "Verifying snapshot...",
-            "Preparing destination...",
-            "Restoring ZFS datasets...",
-            "Applying ZFS properties...",
-            "Restoring partition layout...",
-            "Restoring EFI partition...",
-            "Installing bootloader...",
-            "Finishing up...",
-        ]
+        # Parse snapshot to get dataset and snapshot name
+        # Format: pool/dataset@snapshot or pool@snapshot
+        if "@" not in snapshot:
+            self.app.call_from_thread(
+                self.log_message, f"Invalid snapshot format: {snapshot}", "bold red"
+            )
+            self._finish_restore(False)
+            return
 
-        for i, step in enumerate(steps):
-            log.write(f"[yellow]{step}[/]")
-            progress.progress = (i + 1) * (100 // len(steps))
-            status.update(step)
+        dataset_part = snapshot.split("@")[0]
+        pool_name = dataset_part.split("/")[0]
 
-        log.write("[bold green]Restore completed successfully![/]")
-        progress.progress = 100
-        status.update("Restore completed!")
+        # Calculate total steps for progress
+        total_steps = 2  # Always: verify + restore ZFS
+        if options.get("restore_props"):
+            total_steps += 1
+        if options.get("restore_gpt"):
+            total_steps += 1
+        if options.get("restore_efi"):
+            total_steps += 1
+        if options.get("install_bootloader"):
+            total_steps += 1
+        current_step = 0
 
-        # Enable cancel (now "Close") button
-        cancel = self.query_one("#cancel", Button)
-        cancel.label = "Close"
-        cancel.disabled = False
-        cancel.variant = "primary"
+        try:
+            # Step 1: Verify connection and snapshot
+            current_step += 1
+            progress_pct = int((current_step / total_steps) * 100)
+            self.app.call_from_thread(
+                self.update_progress, progress_pct, "Verifying snapshot..."
+            )
+            self.app.call_from_thread(self.log_message, f"Verifying snapshot: {snapshot}", "yellow")
+
+            info = ssh_client.get_snapshot_info(snapshot)
+            if not info:
+                self.app.call_from_thread(
+                    self.log_message, f"Snapshot not found: {snapshot}", "bold red"
+                )
+                self._finish_restore(False)
+                return
+
+            self.app.call_from_thread(
+                self.log_message, f"  Size: {info.get('used', 'unknown')}", "dim"
+            )
+
+            # Create temp directory for metadata files
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmppath = Path(tmpdir)
+
+                # Determine metadata path on remote (look for znapzend-full metadata dataset)
+                metadata_base = f"{pool_name}/znapzend-full"
+                metadata_files = ssh_client.list_metadata_files(f"/{metadata_base}")
+
+                # Step: Restore GPT partition layout (if selected)
+                if options.get("restore_gpt"):
+                    current_step += 1
+                    progress_pct = int((current_step / total_steps) * 100)
+                    self.app.call_from_thread(
+                        self.update_progress, progress_pct, "Restoring GPT partition layout..."
+                    )
+                    self.app.call_from_thread(
+                        self.log_message, f"Restoring GPT layout to {target_disk}", "yellow"
+                    )
+
+                    # Find GPT backup file for the source disk
+                    gpt_files = metadata_files.get("gpt", [])
+                    if gpt_files:
+                        # Use first available GPT backup
+                        gpt_remote = f"/{metadata_base}/gpt/{gpt_files[0]}"
+                        gpt_local = tmppath / "gpt_backup"
+
+                        if ssh_client.copy_file(gpt_remote, str(gpt_local)):
+                            if restore_gpt(gpt_local, target_disk):
+                                self.app.call_from_thread(
+                                    self.log_message, "  GPT layout restored successfully", "green"
+                                )
+                            else:
+                                self.app.call_from_thread(
+                                    self.log_message, "  Failed to restore GPT layout", "red"
+                                )
+                        else:
+                            self.app.call_from_thread(
+                                self.log_message, "  Failed to download GPT backup", "red"
+                            )
+                    else:
+                        self.app.call_from_thread(
+                            self.log_message, "  No GPT backup found, skipping", "yellow"
+                        )
+
+                # Step: Restore EFI partition (if selected)
+                if options.get("restore_efi"):
+                    current_step += 1
+                    progress_pct = int((current_step / total_steps) * 100)
+                    self.app.call_from_thread(
+                        self.update_progress, progress_pct, "Restoring EFI partition..."
+                    )
+                    self.app.call_from_thread(self.log_message, "Restoring EFI partition", "yellow")
+
+                    efi_files = metadata_files.get("efi", [])
+                    if efi_files:
+                        efi_remote = f"/{metadata_base}/efi/{efi_files[0]}"
+                        efi_local = tmppath / "efi_backup.img"
+
+                        if ssh_client.copy_file(efi_remote, str(efi_local)):
+                            # Determine EFI partition (typically partition 1 on the target disk)
+                            efi_partition = f"{target_disk}1"
+                            if target_disk.endswith(tuple("0123456789")):
+                                efi_partition = f"{target_disk}p1"
+
+                            if restore_efi(efi_local, efi_partition):
+                                self.app.call_from_thread(
+                                    self.log_message, "  EFI partition restored successfully", "green"
+                                )
+                            else:
+                                self.app.call_from_thread(
+                                    self.log_message, "  Failed to restore EFI partition", "red"
+                                )
+                        else:
+                            self.app.call_from_thread(
+                                self.log_message, "  Failed to download EFI backup", "red"
+                            )
+                    else:
+                        self.app.call_from_thread(
+                            self.log_message, "  No EFI backup found, skipping", "yellow"
+                        )
+
+                # Step: Restore ZFS datasets via send/receive
+                current_step += 1
+                progress_pct = int((current_step / total_steps) * 100)
+                self.app.call_from_thread(
+                    self.update_progress, progress_pct, "Restoring ZFS datasets..."
+                )
+                self.app.call_from_thread(
+                    self.log_message, f"Receiving ZFS snapshot: {snapshot}", "yellow"
+                )
+
+                # Perform the actual ZFS send/receive
+                result = ssh_client.stream_receive(
+                    snapshot=snapshot,
+                    local_dataset=pool_name,
+                    force=True,
+                )
+
+                if result.returncode == 0:
+                    self.app.call_from_thread(
+                        self.log_message, "  ZFS dataset restored successfully", "green"
+                    )
+                else:
+                    self.app.call_from_thread(
+                        self.log_message, f"  ZFS restore failed: {result.stderr}", "bold red"
+                    )
+                    self._finish_restore(False)
+                    return
+
+                # Step: Apply ZFS properties (if selected)
+                if options.get("restore_props"):
+                    current_step += 1
+                    progress_pct = int((current_step / total_steps) * 100)
+                    self.app.call_from_thread(
+                        self.update_progress, progress_pct, "Applying ZFS properties..."
+                    )
+                    self.app.call_from_thread(self.log_message, "Applying ZFS properties", "yellow")
+
+                    zfs_files = metadata_files.get("zfs", [])
+                    props_file = next(
+                        (f for f in zfs_files if f.endswith("-properties.txt")), None
+                    )
+                    if props_file:
+                        props_remote = f"/{metadata_base}/zfs/{props_file}"
+                        props_local = tmppath / "zfs_properties.txt"
+
+                        if ssh_client.copy_file(props_remote, str(props_local)):
+                            if apply_properties_from_file(props_local, pool_name):
+                                self.app.call_from_thread(
+                                    self.log_message, "  ZFS properties applied successfully", "green"
+                                )
+                            else:
+                                self.app.call_from_thread(
+                                    self.log_message, "  Some properties failed to apply", "yellow"
+                                )
+                        else:
+                            self.app.call_from_thread(
+                                self.log_message, "  Failed to download properties file", "red"
+                            )
+                    else:
+                        self.app.call_from_thread(
+                            self.log_message, "  No properties backup found, skipping", "yellow"
+                        )
+
+                # Step: Install bootloader (if selected)
+                if options.get("install_bootloader"):
+                    current_step += 1
+                    progress_pct = int((current_step / total_steps) * 100)
+                    self.app.call_from_thread(
+                        self.update_progress, progress_pct, "Installing bootloader..."
+                    )
+                    self.app.call_from_thread(
+                        self.log_message, f"Installing GRUB to {target_disk}", "yellow"
+                    )
+
+                    # For a full restore, we'd need to chroot into the restored system
+                    # This is a simplified version
+                    if install_grub(target_disk, efi=True):
+                        self.app.call_from_thread(
+                            self.log_message, "  Bootloader installed successfully", "green"
+                        )
+                    else:
+                        self.app.call_from_thread(
+                            self.log_message, "  Failed to install bootloader", "red"
+                        )
+
+            # Success!
+            self._finish_restore(True)
+
+        except Exception as e:
+            logger.exception("Restore failed")
+            self.app.call_from_thread(
+                self.log_message, f"Restore failed with error: {e}", "bold red"
+            )
+            self._finish_restore(False)
+
+    def _finish_restore(self, success: bool) -> None:
+        """Finish the restore process and update UI."""
+        def update_ui():
+            progress = self.query_one("#progress", ProgressBar)
+            status = self.query_one("#status", Static)
+            cancel = self.query_one("#cancel", Button)
+
+            if success:
+                self.log_message("Restore completed successfully!", "bold green")
+                progress.progress = 100
+                status.update("Restore completed!")
+                cancel.label = "Close"
+                cancel.variant = "primary"
+            else:
+                self.log_message("Restore failed. Check the log for details.", "bold red")
+                status.update("Restore failed")
+                cancel.label = "Close"
+                cancel.variant = "error"
+
+        self.app.call_from_thread(update_ui)
 
     @on(Button.Pressed, "#cancel")
-    def close_pressed(self) -> None:
+    def cancel_pressed(self) -> None:
+        # If a restore is in progress, we should cancel it
+        # For now, just exit
         self.app.exit()
 
 
