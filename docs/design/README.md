@@ -11,8 +11,9 @@ This documentation covers the architecture, design decisions, and implementation
 5. [D-Bus Interface](dbus-interface.md)
 6. [Hash-Based Change Detection](hash-tracking.md)
 7. [Restore System](restore-system.md)
-8. [Packaging](packaging.md)
-9. [Contributing](contributing.md)
+8. [E2E Testing Framework](e2e-testing.md)
+9. [Packaging](packaging.md)
+10. [Contributing](contributing.md)
 
 ## Project Goals
 
@@ -176,6 +177,19 @@ Requires ZFS:
 ```bash
 pytest tests/integration/
 ```
+
+### E2E Tests
+
+Full backup/restore cycle using QEMU VMs. Requires KVM and ~8GB RAM:
+```bash
+# Build base image (first time)
+cd tests/e2e/images && make image
+
+# Run E2E tests
+pytest tests/e2e/ -v --timeout=1200
+```
+
+See [E2E Testing Framework](e2e-testing.md) for details.
 
 ### Manual Testing
 
