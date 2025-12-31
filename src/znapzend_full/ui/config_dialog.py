@@ -6,12 +6,10 @@ Provides a tabbed dialog for configuring backup settings.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -29,20 +27,15 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QGroupBox,
     QFormLayout,
-    QComboBox,
     QMessageBox,
     QDialogButtonBox,
     QSplitter,
-    QFrame,
 )
-
-import dbus
 
 from znapzend_full.config import (
     Config,
     DatasetConfig,
     DestinationConfig,
-    AdditionalBackups,
     RetentionPolicy,
     load_config,
     save_config,

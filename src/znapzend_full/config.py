@@ -6,7 +6,6 @@ Handles loading, saving, and validating the YAML configuration file.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -66,7 +65,6 @@ class DestinationConfig:
 
     def ssh_uri(self) -> str:
         """Return SSH URI for this destination."""
-        key_part = f"-i {self.ssh_key} " if self.ssh_key else ""
         return f"ssh://{self.user}@{self.host}:{self.port}"
 
 

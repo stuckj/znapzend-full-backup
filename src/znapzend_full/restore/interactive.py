@@ -11,12 +11,11 @@ import logging
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -27,23 +26,16 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
-    OptionList,
-    Placeholder,
     ProgressBar,
-    RadioButton,
-    RadioSet,
     RichLog,
     Rule,
     Static,
     Switch,
-    TabbedContent,
-    TabPane,
 )
-from textual.widget import Widget
-from textual.worker import Worker, WorkerState
+from textual.worker import Worker
 
 from .ssh_client import SSHClient, SSHConfig
-from .zfs_restore import restore_dataset, restore_pool, apply_properties_from_file
+from .zfs_restore import apply_properties_from_file
 from .partition_restore import restore_gpt, restore_efi, install_grub
 
 logger = logging.getLogger(__name__)

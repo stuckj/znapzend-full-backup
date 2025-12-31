@@ -55,7 +55,11 @@ jobs:
             bridge-utils \
             iproute2 \
             python3-pip \
-            python3-venv
+            python3-venv \
+            libdbus-1-dev \
+            libgirepository1.0-dev \
+            pkg-config \
+            python3-dev
 
           # Enable KVM access for the runner user
           sudo chmod 666 /dev/kvm || echo "Could not chmod /dev/kvm"

@@ -11,21 +11,18 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import dbus
 
 from ..config import (
-    Config,
     load_config,
     save_config,
     validate_config,
     get_default_config,
     DEFAULT_CONFIG_PATH,
 )
-from ..utils import format_size
 
 # D-Bus constants
 DBUS_BUS_NAME = "org.znapzend.Full"
@@ -303,7 +300,7 @@ def cmd_config_apply(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        config = load_config(config_path)
+        _config = load_config(config_path)  # noqa: F841 - TODO: use config
 
         # TODO: Generate znapzend configuration from our config
         # This would call znapzendzetup to set up each dataset

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import signal
-import sys
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -387,8 +386,8 @@ def main() -> None:
         logger.info("Trying session bus for development...")
         bus = dbus.SessionBus()
 
-    # Create service
-    service = ZnapzendFullService(bus, args.config)
+    # Create service (must remain in scope for D-Bus registration)
+    _service = ZnapzendFullService(bus, args.config)  # noqa: F841
 
     # Setup signal handlers
     loop = GLib.MainLoop()

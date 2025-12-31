@@ -305,7 +305,6 @@ def apply_properties_from_file(
         return False
 
     content = props_file.read_text()
-    current_dataset = None
     properties: dict[str, dict[str, str]] = {}
 
     for line in content.split("\n"):

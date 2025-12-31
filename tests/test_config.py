@@ -1,7 +1,6 @@
 """Tests for znapzend_full.config module."""
 
 import pytest
-from pathlib import Path
 import yaml
 
 from znapzend_full.config import (
@@ -9,13 +8,10 @@ from znapzend_full.config import (
     DatasetConfig,
     DestinationConfig,
     RetentionPolicy,
-    AdditionalBackups,
-    ScheduleConfig,
     load_config,
     save_config,
     validate_config,
     get_default_config,
-    DEFAULT_CONFIG_PATH,
 )
 
 
