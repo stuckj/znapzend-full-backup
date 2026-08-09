@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export PYBUILD_NAME = znapzend-full
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+override_dh_auto_install:
+	dh_auto_install
+
+	# Install bin scripts
+	install -D -m 755 bin/znapzend-full-pre-backup \
+		debian/znapzend-full/usr/lib/znapzend-full/bin/znapzend-full-pre-backup
+	install -D -m 755 bin/znapzend-full-post-backup \
+		debian/znapzend-full/usr/lib/znapzend-full/bin/znapzend-full-post-backup
+
+	# Install systemd services
+	install -D -m 644 systemd/znapzend-full.service \
+		debian/znapzend-full/lib/systemd/system/znapzend-full.service
+	install -D -m 644 systemd/znapzend-full-dbus.service \
+		debian/znapzend-full/lib/systemd/system/znapzend-full-dbus.service
+
+	# Install D-Bus configuration
+	install -D -m 644 dbus/org.znapzend.Full.conf \
+		debian/znapzend-full/etc/dbus-1/system.d/org.znapzend.Full.conf
+
+	# Install Polkit policy
+	install -D -m 644 polkit/org.znapzend.full.policy \
+		debian/znapzend-full/usr/share/polkit-1/actions/org.znapzend.full.policy
+
+	# Install example config
+	install -D -m 644 config/znapzend-full.yaml.example \
+		debian/znapzend-full/usr/share/doc/znapzend-full/config.yaml.example
+
+override_dh_installsystemd:
+	dh_installsystemd --name=znapzend-full
+	dh_installsystemd --name=znapzend-full-dbus

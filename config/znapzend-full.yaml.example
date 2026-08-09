@@ -1,0 +1,99 @@
+# znapzend-full configuration example
+#
+# Copy this file to /etc/znapzend-full/config.yaml and modify as needed.
+#
+
+version: 1
+
+# Dataset for storing metadata backups (EFI, GPT, ZFS properties)
+# This dataset will be created automatically if it doesn't exist.
+metadata_dataset: rpool/znapzend-full-meta
+
+# ZFS datasets to backup
+datasets:
+  # Root filesystem
+  - name: rpool/ROOT
+    recursive: true
+    exclude:
+      - rpool/ROOT/ubuntu/tmp
+      - rpool/ROOT/ubuntu/var/tmp
+      - rpool/ROOT/ubuntu/var/cache
+      - rpool/ROOT/ubuntu/var/log
+    destination: backup-server:tank/backups/myhost/ROOT
+    retention:
+      hourly: 24
+      daily: 7
+      weekly: 4
+      monthly: 12
+      yearly: 0
+    enabled: true
+
+  # Home directories
+  - name: rpool/home
+    recursive: true
+    destination: backup-server:tank/backups/myhost/home
+    retention:
+      hourly: 48
+      daily: 30
+      weekly: 8
+      monthly: 24
+      yearly: 2
+    enabled: true
+
+  # Data datasets
+  - name: rpool/data
+    recursive: true
+    destination: backup-server:tank/backups/myhost/data
+    retention:
+      hourly: 12
+      daily: 14
+      weekly: 8
+      monthly: 12
+      yearly: 0
+    enabled: true
+
+# Additional (non-ZFS) backups
+additional_backups:
+  # EFI partitions to backup
+  # List all EFI partitions (useful for mirrored boot setups)
+  efi_partitions:
+    - /dev/nvme0n1p1
+    # - /dev/nvme1n1p1  # Uncomment for mirrored setup
+
+  # Disks to backup GPT partition tables from
+  # Both binary (for restore) and text (for reference) are saved
+  gpt_backup:
+    - /dev/nvme0n1
+    # - /dev/nvme1n1  # Uncomment for mirrored setup
+
+  # ZFS pools to backup properties for (status + properties)
+  zpool_properties:
+    - rpool
+
+  # Datasets/pools to backup ZFS properties for
+  # Properties are saved recursively for all child datasets
+  zfs_properties:
+    - rpool
+
+# Backup destinations
+destinations:
+  - name: backup-server
+    host: backup.local
+    user: root
+    port: 22
+    ssh_key: /root/.ssh/id_backup
+
+  # Example: Secondary destination
+  # - name: offsite-backup
+  #   host: offsite.example.com
+  #   user: backup
+  #   port: 2222
+  #   ssh_key: /root/.ssh/id_offsite
+
+# Schedule configuration
+schedule:
+  # Quiet hours: no backups during this time
+  # Useful if you notice performance issues during certain activities
+  quiet_hours:
+    start: ""  # e.g., "02:00"
+    end: ""    # e.g., "06:00"

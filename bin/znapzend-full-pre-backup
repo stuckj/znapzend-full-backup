@@ -1,0 +1,327 @@
+#!/bin/bash
+#
+# znapzend-full-pre-backup
+#
+# Pre-backup script for znapzend-full. Captures non-ZFS system data
+# before znapzend runs, including:
+# - EFI partitions
+# - GPT partition layouts
+# - zpool status (vdev layout)
+# - zpool properties
+# - ZFS dataset properties
+#
+# Uses hash-based change detection to minimize ZFS snapshot size.
+#
+
+set -euo pipefail
+
+# Configuration
+CONFIG_FILE="${ZNAPZEND_FULL_CONFIG:-/etc/znapzend-full/config.yaml}"
+LOG_FILE="/var/log/znapzend-full/pre-backup.log"
+DBUS_SERVICE="org.znapzend.Full"
+DBUS_PATH="/org/znapzend/Full"
+
+# Logging
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE" >&2
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Check if paused
+check_paused() {
+    if command -v dbus-send &>/dev/null; then
+        local status
+        status=$(dbus-send --system --print-reply --dest="$DBUS_SERVICE" \
+            "$DBUS_PATH" org.znapzend.Full.GetStatus 2>/dev/null || echo "")
+        if echo "$status" | grep -q '"paused"'; then
+            log_info "Backups are paused, skipping pre-backup"
+            exit 0
+        fi
+    fi
+}
+
+# Notify D-Bus service that backup is starting
+notify_backup_starting() {
+    if command -v dbus-send &>/dev/null; then
+        dbus-send --system --type=method_call --dest="$DBUS_SERVICE" \
+            "$DBUS_PATH" org.znapzend.Full.NotifyBackupStarting 2>/dev/null || true
+    fi
+}
+
+# Parse YAML config (simple parser for our specific format)
+# For full YAML parsing, we call Python
+parse_config() {
+    python3 -c "
+import sys
+import yaml
+
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+
+    # Output config values in shell-friendly format
+    print('METADATA_DATASET=\"{}\"'.format(config.get('metadata_dataset', 'rpool/znapzend-full-meta')))
+
+    # EFI partitions
+    efi = config.get('additional_backups', {}).get('efi_partitions', [])
+    print('EFI_PARTITIONS=({})'.format(' '.join('\"{}\"'.format(p) for p in efi)))
+
+    # GPT backup disks
+    gpt = config.get('additional_backups', {}).get('gpt_backup', [])
+    print('GPT_DISKS=({})'.format(' '.join('\"{}\"'.format(d) for d in gpt)))
+
+    # Zpool properties
+    zpools = config.get('additional_backups', {}).get('zpool_properties', [])
+    print('ZPOOL_LIST=({})'.format(' '.join('\"{}\"'.format(p) for p in zpools)))
+
+    # ZFS properties (datasets/pools to backup properties for)
+    zfs = config.get('additional_backups', {}).get('zfs_properties', [])
+    print('ZFS_PROPS_LIST=({})'.format(' '.join('\"{}\"'.format(d) for d in zfs)))
+
+except Exception as e:
+    print('# Error parsing config: {}'.format(e), file=sys.stderr)
+    sys.exit(1)
+"
+}
+
+# Compute SHA256 hash of a file
+compute_hash() {
+    local file="$1"
+    sha256sum "$file" | cut -d' ' -f1
+}
+
+# Check if file has changed (compare hash)
+has_changed() {
+    local file="$1"
+    local hash_file="${file}.sha256"
+
+    if [[ ! -f "$file" ]] || [[ ! -f "$hash_file" ]]; then
+        return 0  # Changed (file or hash doesn't exist)
+    fi
+
+    local current_hash
+    current_hash=$(compute_hash "$file")
+    local stored_hash
+    stored_hash=$(cut -d' ' -f1 < "$hash_file")
+
+    [[ "$current_hash" != "$stored_hash" ]]
+}
+
+# Update file with hash tracking
+update_with_hash() {
+    local target="$1"
+    local tmp_file="$2"
+    local hash_file="${target}.sha256"
+
+    local new_hash
+    new_hash=$(compute_hash "$tmp_file")
+
+    local stored_hash=""
+    if [[ -f "$hash_file" ]]; then
+        stored_hash=$(cut -d' ' -f1 < "$hash_file")
+    fi
+
+    if [[ "$new_hash" != "$stored_hash" ]]; then
+        mv "$tmp_file" "$target"
+        echo "$new_hash  $(basename "$target")" > "$hash_file"
+        log_info "Updated $target (hash changed)"
+        return 0
+    else
+        rm -f "$tmp_file"
+        log_info "No change for $target"
+        return 1
+    fi
+}
+
+# Backup EFI partition
+backup_efi() {
+    local partition="$1"
+    local name
+    name=$(basename "$partition")
+    local target="${BACKUP_DIR}/efi/${name}.img"
+    local tmp_file="${target}.tmp"
+
+    mkdir -p "$(dirname "$target")"
+
+    log_info "Backing up EFI partition $partition"
+    if ! dd if="$partition" of="$tmp_file" bs=4M status=none 2>/dev/null; then
+        log_error "Failed to backup EFI partition $partition"
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    update_with_hash "$target" "$tmp_file"
+}
+
+# Backup GPT partition table
+backup_gpt() {
+    local disk="$1"
+    local name
+    name=$(basename "$disk")
+    local binary_target="${BACKUP_DIR}/gpt/${name}.sgdisk"
+    local text_target="${BACKUP_DIR}/gpt/${name}.txt"
+
+    mkdir -p "$(dirname "$binary_target")"
+
+    # Binary backup
+    log_info "Backing up GPT (binary) for $disk"
+    local tmp_binary="${binary_target}.tmp"
+    if ! sgdisk --backup="$tmp_binary" "$disk" 2>/dev/null; then
+        log_error "Failed to backup GPT (binary) for $disk"
+        rm -f "$tmp_binary"
+    else
+        update_with_hash "$binary_target" "$tmp_binary"
+    fi
+
+    # Human-readable backup
+    log_info "Backing up GPT (readable) for $disk"
+    local tmp_text="${text_target}.tmp"
+    if ! sgdisk --print "$disk" > "$tmp_text" 2>/dev/null; then
+        log_error "Failed to backup GPT (readable) for $disk"
+        rm -f "$tmp_text"
+    else
+        update_with_hash "$text_target" "$tmp_text"
+    fi
+}
+
+# Backup zpool status (vdev layout)
+backup_zpool_status() {
+    local pool="$1"
+    local target="${BACKUP_DIR}/zpool/${pool}.status"
+    local tmp_file="${target}.tmp"
+
+    mkdir -p "$(dirname "$target")"
+
+    log_info "Backing up zpool status for $pool"
+    if ! zpool status "$pool" > "$tmp_file" 2>/dev/null; then
+        log_error "Failed to backup zpool status for $pool"
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    update_with_hash "$target" "$tmp_file"
+}
+
+# Backup zpool properties
+backup_zpool_properties() {
+    local pool="$1"
+    local target="${BACKUP_DIR}/zpool/${pool}.properties"
+    local tmp_file="${target}.tmp"
+
+    mkdir -p "$(dirname "$target")"
+
+    log_info "Backing up zpool properties for $pool"
+    if ! zpool get all "$pool" > "$tmp_file" 2>/dev/null; then
+        log_error "Failed to backup zpool properties for $pool"
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    update_with_hash "$target" "$tmp_file"
+}
+
+# Backup ZFS dataset properties (all datasets recursively)
+backup_zfs_properties() {
+    local dataset="$1"
+    local pool_name
+    pool_name=$(echo "$dataset" | cut -d'/' -f1)
+    local target="${BACKUP_DIR}/zfs/${pool_name}.properties"
+    local tmp_file="${target}.tmp"
+
+    mkdir -p "$(dirname "$target")"
+
+    log_info "Backing up ZFS properties for $dataset (recursive)"
+    if ! zfs get all -r "$dataset" > "$tmp_file" 2>/dev/null; then
+        log_error "Failed to backup ZFS properties for $dataset"
+        rm -f "$tmp_file"
+        return 1
+    fi
+
+    update_with_hash "$target" "$tmp_file"
+}
+
+# Ensure metadata dataset exists
+ensure_metadata_dataset() {
+    local dataset="$1"
+
+    if ! zfs list -H "$dataset" &>/dev/null; then
+        log_info "Creating metadata dataset $dataset"
+        zfs create -p "$dataset"
+    fi
+}
+
+# Get mountpoint of a dataset
+get_mountpoint() {
+    local dataset="$1"
+    zfs get -H -o value mountpoint "$dataset"
+}
+
+# Main
+main() {
+    log_info "Starting znapzend-full pre-backup"
+
+    # Check if paused
+    check_paused
+
+    # Notify D-Bus service
+    notify_backup_starting
+
+    # Check config exists
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Configuration file not found: $CONFIG_FILE"
+        exit 1
+    fi
+
+    # Parse configuration
+    eval "$(parse_config)"
+
+    # Ensure metadata dataset exists
+    ensure_metadata_dataset "$METADATA_DATASET"
+
+    # Get backup directory (mountpoint of metadata dataset)
+    BACKUP_DIR=$(get_mountpoint "$METADATA_DATASET")
+    if [[ -z "$BACKUP_DIR" ]] || [[ "$BACKUP_DIR" == "none" ]] || [[ "$BACKUP_DIR" == "-" ]]; then
+        log_error "Metadata dataset $METADATA_DATASET is not mounted"
+        exit 1
+    fi
+
+    log_info "Backup directory: $BACKUP_DIR"
+
+    # Backup EFI partitions
+    for partition in "${EFI_PARTITIONS[@]:-}"; do
+        [[ -n "$partition" ]] && backup_efi "$partition" || true
+    done
+
+    # Backup GPT layouts
+    for disk in "${GPT_DISKS[@]:-}"; do
+        [[ -n "$disk" ]] && backup_gpt "$disk" || true
+    done
+
+    # Backup zpool info
+    for pool in "${ZPOOL_LIST[@]:-}"; do
+        if [[ -n "$pool" ]]; then
+            backup_zpool_status "$pool" || true
+            backup_zpool_properties "$pool" || true
+        fi
+    done
+
+    # Backup ZFS properties
+    for dataset in "${ZFS_PROPS_LIST[@]:-}"; do
+        [[ -n "$dataset" ]] && backup_zfs_properties "$dataset" || true
+    done
+
+    log_info "Pre-backup completed successfully"
+}
+
+main "$@"

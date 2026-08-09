@@ -1,0 +1,87 @@
+#!/bin/bash
+#
+# znapzend-full-post-backup
+#
+# Post-backup script for znapzend-full. Performs cleanup and status updates
+# after znapzend completes a backup run.
+#
+
+set -euo pipefail
+
+# Configuration
+LOG_FILE="/var/log/znapzend-full/post-backup.log"
+DBUS_SERVICE="org.znapzend.Full"
+DBUS_PATH="/org/znapzend/Full"
+
+# Logging
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE" >&2
+}
+
+log_info() { log "INFO" "$@"; }
+log_warn() { log "WARN" "$@"; }
+log_error() { log "ERROR" "$@"; }
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Notify D-Bus service that backup completed
+notify_backup_completed() {
+    local success="${1:-true}"
+    if command -v dbus-send &>/dev/null; then
+        dbus-send --system --type=method_call --dest="$DBUS_SERVICE" \
+            "$DBUS_PATH" org.znapzend.Full.NotifyBackupCompleted \
+            boolean:"$success" 2>/dev/null || true
+    fi
+}
+
+# Check znapzend exit status (passed as argument or via environment)
+check_status() {
+    local exit_code="${1:-${ZNAPZEND_EXIT_CODE:-0}}"
+
+    if [[ "$exit_code" -eq 0 ]]; then
+        log_info "znapzend backup completed successfully"
+        notify_backup_completed true
+    else
+        log_error "znapzend backup failed with exit code $exit_code"
+        notify_backup_completed false
+    fi
+}
+
+# Optional: Verify snapshot was created
+verify_snapshot() {
+    local dataset="${1:-}"
+
+    if [[ -z "$dataset" ]]; then
+        return 0
+    fi
+
+    # Get the most recent snapshot
+    local latest
+    latest=$(zfs list -t snapshot -H -o name -S creation "$dataset" 2>/dev/null | head -1 || echo "")
+
+    if [[ -n "$latest" ]]; then
+        log_info "Latest snapshot: $latest"
+    else
+        log_warn "No snapshots found for $dataset"
+    fi
+}
+
+# Main
+main() {
+    log_info "Starting znapzend-full post-backup"
+
+    # Get exit code from argument or environment
+    local exit_code="${1:-${ZNAPZEND_EXIT_CODE:-0}}"
+
+    check_status "$exit_code"
+
+    log_info "Post-backup completed"
+}
+
+main "$@"

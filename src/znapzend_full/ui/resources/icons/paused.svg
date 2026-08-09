@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- znapzend-full paused state icon: pause symbol -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Circle background -->
+  <circle cx="32" cy="32" r="28" fill="#ffb400" stroke="#cc9000" stroke-width="2"/>
+  <!-- Pause bars -->
+  <rect x="20" y="18" width="8" height="28" rx="2" fill="white"/>
+  <rect x="36" y="18" width="8" height="28" rx="2" fill="white"/>
+</svg>

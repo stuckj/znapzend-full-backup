@@ -1,0 +1,45 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Reload D-Bus configuration
+        if [ -x /usr/bin/dbus-send ]; then
+            dbus-send --system --type=method_call --dest=org.freedesktop.DBus \
+                /org/freedesktop/DBus org.freedesktop.DBus.ReloadConfig || true
+        fi
+
+        # Create log directory
+        mkdir -p /var/log/znapzend-full
+        chmod 750 /var/log/znapzend-full
+
+        # Create config directory if it doesn't exist
+        if [ ! -d /etc/znapzend-full ]; then
+            mkdir -p /etc/znapzend-full
+            chmod 750 /etc/znapzend-full
+        fi
+
+        # Install example config if no config exists
+        if [ ! -f /etc/znapzend-full/config.yaml ]; then
+            if [ -f /usr/share/doc/znapzend-full/config.yaml.example ]; then
+                cp /usr/share/doc/znapzend-full/config.yaml.example \
+                   /etc/znapzend-full/config.yaml
+                chmod 640 /etc/znapzend-full/config.yaml
+                echo "Installed example configuration to /etc/znapzend-full/config.yaml"
+                echo "Please edit this file before enabling the service."
+            fi
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

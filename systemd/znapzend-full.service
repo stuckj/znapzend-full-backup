@@ -1,0 +1,28 @@
+[Unit]
+Description=ZnapZend Full Backup Service
+Documentation=https://github.com/yourusername/znapzend-full
+After=zfs.target network-online.target znapzend-full-dbus.service
+Wants=network-online.target
+Requires=znapzend-full-dbus.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/lib/znapzend-full/bin/znapzend-full-pre-backup
+ExecStart=/usr/bin/znapzend --daemonize=0
+ExecStopPost=/usr/lib/znapzend-full/bin/znapzend-full-post-backup
+Restart=on-failure
+RestartSec=30
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=znapzend-full
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- znapzend-full error state icon: warning triangle -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Warning triangle background -->
+  <path d="M32 6 L60 54 C62 58 60 60 56 60 L8 60 C4 60 2 58 4 54 Z"
+        fill="#dc0000" stroke="#a00000" stroke-width="2"/>
+  <!-- Exclamation mark -->
+  <rect x="28" y="20" width="8" height="22" rx="2" fill="white"/>
+  <circle cx="32" cy="50" r="4" fill="white"/>
+</svg>

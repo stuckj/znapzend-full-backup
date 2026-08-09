@@ -1,0 +1,29 @@
+[Unit]
+Description=ZnapZend Full D-Bus Service
+Documentation=https://github.com/yourusername/znapzend-full
+After=dbus.service
+
+[Service]
+Type=dbus
+BusName=org.znapzend.Full
+ExecStart=/usr/bin/python3 -m znapzend_full.dbus_service
+Restart=on-failure
+RestartSec=10
+
+# Run as root for ZFS operations
+User=root
+Group=root
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=znapzend-full-dbus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+
+  <vendor>znapzend-full</vendor>
+  <vendor_url>https://github.com/yourusername/znapzend-full</vendor_url>
+
+  <!-- Pause/Resume backups -->
+  <action id="org.znapzend.full.control">
+    <description>Control znapzend-full backups</description>
+    <message>Authentication is required to control backups</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <!-- Trigger manual backup -->
+  <action id="org.znapzend.full.backup">
+    <description>Trigger a znapzend-full backup</description>
+    <message>Authentication is required to trigger a backup</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <!-- Modify configuration -->
+  <action id="org.znapzend.full.configure">
+    <description>Configure znapzend-full</description>
+    <message>Authentication is required to modify backup configuration</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+
+  <!-- View status (non-privileged) -->
+  <action id="org.znapzend.full.status">
+    <description>View znapzend-full status</description>
+    <message>View backup status</message>
+    <defaults>
+      <allow_any>yes</allow_any>
+      <allow_inactive>yes</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+</policyconfig>
